@@ -440,19 +440,29 @@ func (c *converter) syncIngressHTTP(source *annotations.Source, ing *networking.
 			// See https://github.com/jcmoraisjr/haproxy-ingress/issues/981
 			// Moving this logic to updater will fix this behavior, in the mean time we'll add a few more
 			// tips in the doc.
+			c.logger.Info("XX1")
 			if url := annBack[ingtypes.BackAuthURL]; url != "" {
+				c.logger.Info("XX2")
 				urlProto, urlHost, urlPort, _, _ := ingutils.ParseURL(url)
 				if (urlProto == "service" || urlProto == "svc") && urlHost != "" && urlPort != "" {
+					c.logger.Info("XX3")
 					authSvcName := urlHost
 					if !strings.Contains(authSvcName, "/") {
+						c.logger.Info("XX4")
 						authSvcName = ing.Namespace + "/" + authSvcName
 					}
+					c.logger.Info("XX5")
 					_, err := c.addBackend(source, pathLink, authSvcName, urlPort, map[string]string{})
+					c.logger.Info("XX6")
 					if err != nil {
+						c.logger.Info("XX7")
 						c.logger.Warn("skipping auth-url on %v: %v", source, err)
 					}
+					c.logger.Info("XX8")
 				}
+				c.logger.Info("XX9")
 			}
+			c.logger.Info("XX10")
 		}
 	}
 	for _, tls := range ing.Spec.TLS {
@@ -762,21 +772,25 @@ func (c *converter) addHeaderMatch(source *annotations.Source, pathLink *hatypes
 }
 
 func (c *converter) addBackend(source *annotations.Source, pathLink *hatypes.PathLink, fullSvcName, svcPort string, ann map[string]string) (*hatypes.Backend, error) {
+	c.logger.Info("XY1")
 	return c.addBackendWithClass(source, pathLink, fullSvcName, svcPort, ann, nil)
 }
 
 func (c *converter) addBackendWithClass(source *annotations.Source, pathLink *hatypes.PathLink, fullSvcName, svcPort string, ann map[string]string, ingressClass *networking.IngressClass) (*hatypes.Backend, error) {
 	// TODO build a stronger tracking
+	c.logger.Info("XZ1")
 	svc, err := c.cache.GetService(source.Namespace, fullSvcName)
 	hostname := pathLink.Hostname()
 	ctx := convtypes.ResourceHAHostname
 	if strings.Contains(hostname, ":") {
+		c.logger.Info("XZ2")
 		// TODO this is the wrong way to identify if this is a tcp service. But
 		// it works. There is a refactor to be made in some haproxy model types
 		// to better fit gateway api, this should help here, otherwise we'll
 		// need to evolve to an implementation that's not based on assumptions.
 		ctx = convtypes.ResourceHATCPService
 	}
+	c.logger.Info("XZ3")
 	c.tracker.TrackRefName([]convtypes.TrackingRef{
 		{Context: convtypes.ResourceService, UniqueName: fullSvcName},
 		{Context: convtypes.ResourceEndpoints, UniqueName: fullSvcName},
@@ -792,8 +806,10 @@ func (c *converter) addBackendWithClass(source *annotations.Source, pathLink *ha
 		// from the api.Service object
 		svcPort = svc.Spec.Ports[0].TargetPort.String()
 	}
+	c.logger.Info("XZ4")
 	port := convutils.FindServicePort(svc, svcPort)
 	if port == nil {
+		c.logger.Info("XZ5")
 		if svc.Spec.Type != api.ServiceTypeExternalName || len(svc.Spec.Ports) > 0 {
 			return nil, fmt.Errorf("port not found: '%s'", svcPort)
 		}
@@ -802,6 +818,7 @@ func (c *converter) addBackendWithClass(source *annotations.Source, pathLink *ha
 			return nil, fmt.Errorf("service %s has no port and ingress port is not numerical: '%s'",
 				api.ServiceTypeExternalName, svcPort)
 		}
+		c.logger.Info("XZ6")
 		port = &api.ServicePort{
 			Port:       int32(portNumber),
 			TargetPort: intstr.FromInt(portNumber),
@@ -812,10 +829,13 @@ func (c *converter) addBackendWithClass(source *annotations.Source, pathLink *ha
 	// TODO converg backend Port and DNSPort; see also tmpl's server-template
 	backend.DNSPort = readDNSPort(svc.Spec.ClusterIP == api.ClusterIPNone, port)
 	mapper, found := c.backendAnnotations[backend]
+	c.logger.Info("XZ7")
 	if !found {
+		c.logger.Info("XZ8")
 		mapper = c.mapBuilder.NewMapper()
 		c.backendAnnotations[backend] = mapper
 	}
+	c.logger.Info("XZ9")
 	// Starting with service annotations, giving precedence
 	_, _, svcann := c.readAnnotations(source, svc.Annotations)
 	mapper.AddAnnotations(&annotations.Source{
@@ -823,15 +843,20 @@ func (c *converter) addBackendWithClass(source *annotations.Source, pathLink *ha
 		Name:      svcName,
 		Type:      convtypes.ResourceService,
 	}, pathLink, svcann)
+	c.logger.Info("XZ9")
 	// Merging Ingress annotations
 	conflict := mapper.AddAnnotations(source, pathLink, ann)
 	if len(conflict) > 0 {
+		c.logger.Info("XZ10")
 		c.logger.Warn("skipping backend '%s:%s' annotation(s) from %v due to conflict: %v",
 			svcName, svcPort, source, conflict)
 	}
+	c.logger.Info("XZ11")
 	// Merging IngressClass Parameters with less priority
 	if ingressClass != nil {
+		c.logger.Info("XZ12")
 		if cfg := c.readParameters(ingressClass); cfg != nil {
+			c.logger.Info("XZ13")
 			// Using a work around to add a per resource default config:
 			// we add IngressClass Parameters after service and ingress annotations,
 			// ignoring conflicts. This would really conflict with other Parameters
@@ -840,29 +865,44 @@ func (c *converter) addBackendWithClass(source *annotations.Source, pathLink *ha
 			_ = mapper.AddAnnotations(source, pathLink, cfg)
 		}
 	}
+	c.logger.Info("XZ14")
 	// Configure endpoints
 	if !found {
+		c.logger.Info("XZ16")
 		backend.Server.InitialWeight = mapper.Get(ingtypes.BackInitialWeight).Int()
 		switch mapper.Get(ingtypes.BackBackendServerNaming).Value {
 		case "ip":
+			c.logger.Info("XZ17")
 			backend.EpNaming = hatypes.EpIPPort
 		case "pod":
+			c.logger.Info("XZ18")
 			backend.EpNaming = hatypes.EpTargetRef
 		default:
+			c.logger.Info("XZ19")
 			backend.EpNaming = hatypes.EpSequence
 		}
+		c.logger.Info("XZ20")
 		if mapper.Get(ingtypes.BackServiceUpstream).Bool() {
+			c.logger.Info("XZ21")
 			if addr, err := convutils.CreateSvcEndpoint(svc, port); err == nil {
+				c.logger.Info("XZ22")
 				backend.AcquireEndpoint(addr.IP, addr.Port, addr.TargetRef)
+				c.logger.Info("XZ23")
 			} else {
+				c.logger.Info("XZ24")
 				c.logger.Error("error adding IP of service '%s': %v", fullSvcName, err)
 			}
 		} else {
+			c.logger.Info("XZ25")
 			if err := c.addEndpoints(svc, port, backend); err != nil {
+				c.logger.Info("XZ26")
 				c.logger.Error("error adding endpoints of service '%s': %v", fullSvcName, err)
 			}
+			c.logger.Info("XZ27")
 		}
+		c.logger.Info("XZ28")
 	}
+	c.logger.Info("XZ29")
 	return backend, nil
 }
 
